@@ -38,18 +38,21 @@ export function getPostgresPool(): pg.Pool {
     }
 
     const isSslDisabled = process.env.DB_SSL === 'false';
-    const useSsl = !isSslDisabled && (
+    const isLocalhost = rawConnectionString.includes('localhost') || rawConnectionString.includes('127.0.0.1');
+
+    // Enable SSL for all remote cloud-hosted PostgreSQL instances (Supabase, Neon, AWS)
+    const useSsl = !isSslDisabled && !isLocalhost && (
       Boolean(rawConnectionString && (
         rawConnectionString.includes('neon.tech') ||
         rawConnectionString.includes('sslmode=require') ||
         rawConnectionString.includes('amazonaws.com') ||
-        rawConnectionString.includes('supabase.co')
+        rawConnectionString.includes('supabase.co') ||
+        rawConnectionString.includes('supabase.com') ||
+        rawConnectionString.includes('pooler.supabase.com')
       )) ||
       process.env.DB_SSL === 'true' ||
       process.env.NODE_ENV === 'production'
     );
-
-    const isLocalhost = rawConnectionString.includes('localhost') || rawConnectionString.includes('127.0.0.1');
 
     poolInstance = new Pool({
       connectionString: rawConnectionString || undefined,
@@ -61,7 +64,7 @@ export function getPostgresPool(): pg.Pool {
       ssl: useSsl ? { rejectUnauthorized: false } : undefined,
       max: process.env.PG_MAX_POOL ? parseInt(process.env.PG_MAX_POOL, 10) : 10,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: isLocalhost ? 3000 : 10000,
+      connectionTimeoutMillis: isLocalhost ? 3000 : 15000,
     });
 
     poolInstance.on('error', (err) => {
@@ -232,17 +235,21 @@ export async function notifyPgRole(
 }
 
 /**
- * Initializes and verifies core schemas and demo accounts in Neon PostgreSQL.
+ * Initializes and verifies core schemas and demo accounts in PostgreSQL.
  * Safe, idempotent, non-destructive migrations.
  */
 export async function initPostgresSchema(pool: pg.Pool): Promise<void> {
   const client = await pool.connect();
   try {
-    // 1. Extensions
-    await client.query(`
-      CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-      CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-    `);
+    // 1. Extensions (Safe fallback for Supabase/Neon where extensions are pre-installed)
+    try {
+      await client.query(`
+        CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+        CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+      `);
+    } catch (extErr: any) {
+      console.warn('⚠️ [Database] Extensions check bypassed (safe in Supabase):', extErr.message || extErr);
+    }
 
     // 2. Users Table
     await client.query(`
@@ -298,7 +305,6 @@ export async function initPostgresSchema(pool: pg.Pool): Promise<void> {
       );
     `);
 
-    // Ensure last_gps_update in ambulances
     try {
       await client.query('ALTER TABLE ambulances ADD COLUMN IF NOT EXISTS last_gps_update TIMESTAMP WITH TIME ZONE;');
     } catch { /* non-blocking */ }
@@ -361,7 +367,6 @@ export async function initPostgresSchema(pool: pg.Pool): Promise<void> {
       );
     `);
 
-    // Ensure non-destructive migrations for emergency_requests columns
     try {
       await client.query('ALTER TABLE emergency_requests ALTER COLUMN driver_id TYPE VARCHAR(50) USING driver_id::text;');
     } catch { /* non-blocking */ }
@@ -422,6 +427,7 @@ export async function initPostgresSchema(pool: pg.Pool): Promise<void> {
       );
     `);
 
+    // 8. Seed Demo Accounts
     const demoAccounts = [
       {
         id: '11111111-1111-4111-a111-111111111111',
@@ -463,6 +469,7 @@ export async function initPostgresSchema(pool: pg.Pool): Promise<void> {
         medicalNotes: '',
       },
     ];
+
     for (const account of demoAccounts) {
       const existing = await client.query(
         'SELECT 1 FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1',
@@ -496,10 +503,10 @@ export async function initPostgresSchema(pool: pg.Pool): Promise<void> {
       );
     }
 
-    // 9. Seed demo ambulances into PostgreSQL if empty
+    // 9. Seed Demo Ambulances
     const ambCountRes = await client.query('SELECT COUNT(*) as count FROM ambulances');
     if (parseInt(ambCountRes.rows[0].count, 10) === 0) {
-      console.log('🌱 [Database] Seeding unified fleet in Neon PostgreSQL...');
+      console.log('🌱 [Database] Seeding unified fleet in PostgreSQL...');
       await client.query(`
         INSERT INTO ambulances (id, vehicle_number, driver_user_id, driver_name, phone, type, base_location, status, current_latitude, current_longitude) VALUES
         (1, 'KA-01-EA-1008', '22222222-2222-4222-a222-222222222222', 'Mohammed Irfan', '+91 97410 54321', 'Advanced Cardiac Life Support (ACLS)', 'Central Trauma Center, Block A', 'AVAILABLE', 12.9716, 77.5946),
@@ -513,10 +520,10 @@ export async function initPostgresSchema(pool: pg.Pool): Promise<void> {
       } catch { /* sequence might not exist */ }
     }
 
-    // 10. Seed hospitals into PostgreSQL if empty
+    // 10. Seed Hospitals
     const hospCountRes = await client.query('SELECT COUNT(*) as count FROM hospitals');
     if (parseInt(hospCountRes.rows[0].count, 10) === 0) {
-      console.log('🌱 [Database] Seeding hospitals in Neon PostgreSQL...');
+      console.log('🌱 [Database] Seeding hospitals in PostgreSQL...');
       await client.query(`
         INSERT INTO hospitals (id, name, specialty, address, latitude, longitude, phone, total_beds, available_beds, ward_capacity, rating, type) VALUES
         (1, 'Victoria Hospital & Trauma Emergency Centre', 'Level-1 Government Trauma & Acute Resuscitation', 'Fort Road, Near City Market, Kalasipalya, Bengaluru 560002', 12.9634, 77.5746, '+91 80 2670 1150', 45, 16, 'AVAILABLE', 4.8, 'Apex Trauma Center'),
@@ -532,7 +539,7 @@ export async function initPostgresSchema(pool: pg.Pool): Promise<void> {
       } catch { /* sequence might not exist */ }
     }
 
-    console.log('✅ [Database] Neon PostgreSQL schemas verified and seeded.');
+    console.log('✅ [Database] PostgreSQL schemas verified and seeded.');
   } finally {
     client.release();
   }
