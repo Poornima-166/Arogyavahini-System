@@ -422,17 +422,79 @@ export async function initPostgresSchema(pool: pg.Pool): Promise<void> {
       );
     `);
 
-    // Seed demo accounts individually so existing registered users do not suppress them.
-    const demoPatientPass = hashPassword('password123');
-    const demoDriverPass = hashPassword('password123');
-    const demoAdminPass = hashPassword('password123');
-    await client.query(`
-      INSERT INTO users (id, client_id, name, email, password_hash, phone, role, auth_provider, delete_flag, blood_type, allergies, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, medical_notes) VALUES
-      ('11111111-1111-4111-a111-111111111111', '00000000-0000-0000-0000-000000000001', 'Priya Rao', 'patient@arogyavahini.in', $1, '+91 98765 43210', 'patient', 'local', false, 'B+', 'Penicillin, NSAIDs (Aspirin)', 'Rajesh Rao', '+91 98451 98765', 'Spouse', 'Mild seasonal asthma; carries inhaler'),
-      ('22222222-2222-4222-a222-222222222222', '00000000-0000-0000-0000-000000000001', 'Mohammed Irfan', 'driver@arogyavahini.in', $2, '+91 97410 54321', 'driver', 'local', false, 'O+', 'None', 'HQ Dispatch', '+91 80 2200 1122', 'Dispatch Supervisor', ''),
-      ('33333333-3333-4333-a333-333333333333', '00000000-0000-0000-0000-000000000001', 'Dr. Arvind Deshmukh', 'admin@arogyavahini.in', $3, '+91 98111 22334', 'admin', 'local', false, 'A+', 'None', 'HQ Security', '+91 80 2200 1122', 'Command Center', '')
-      ON CONFLICT (email) DO NOTHING;
-    `, [demoPatientPass, demoDriverPass, demoAdminPass]);
+    const demoAccounts = [
+      {
+        id: '11111111-1111-4111-a111-111111111111',
+        name: 'Priya Rao',
+        email: 'patient@arogyavahini.in',
+        phone: '+91 98765 43210',
+        role: 'patient',
+        bloodType: 'B+',
+        allergies: 'Penicillin, NSAIDs (Aspirin)',
+        contactName: 'Rajesh Rao',
+        contactPhone: '+91 98451 98765',
+        contactRelation: 'Spouse',
+        medicalNotes: 'Mild seasonal asthma; carries inhaler',
+      },
+      {
+        id: '22222222-2222-4222-a222-222222222222',
+        name: 'Mohammed Irfan',
+        email: 'driver@arogyavahini.in',
+        phone: '+91 97410 54321',
+        role: 'driver',
+        bloodType: 'O+',
+        allergies: 'None',
+        contactName: 'HQ Dispatch',
+        contactPhone: '+91 80 2200 1122',
+        contactRelation: 'Dispatch Supervisor',
+        medicalNotes: '',
+      },
+      {
+        id: '33333333-3333-4333-a333-333333333333',
+        name: 'Dr. Arvind Deshmukh',
+        email: 'admin@arogyavahini.in',
+        phone: '+91 98111 22334',
+        role: 'admin',
+        bloodType: 'A+',
+        allergies: 'None',
+        contactName: 'HQ Security',
+        contactPhone: '+91 80 2200 1122',
+        contactRelation: 'Command Center',
+        medicalNotes: '',
+      },
+    ];
+    for (const account of demoAccounts) {
+      const existing = await client.query(
+        'SELECT 1 FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1',
+        [account.email]
+      );
+      if (existing.rowCount) continue;
+
+      await client.query(
+        `INSERT INTO users (
+          id, client_id, name, email, password_hash, phone, role, auth_provider, delete_flag,
+          blood_type, allergies, emergency_contact_name, emergency_contact_phone,
+          emergency_contact_relation, medical_notes
+        )
+        SELECT $1, $2, $3, $4, $5, $6, $7, 'local', false, $8, $9, $10, $11, $12, $13
+        WHERE NOT EXISTS (SELECT 1 FROM users WHERE LOWER(email) = LOWER($4))`,
+        [
+          account.id,
+          '00000000-0000-0000-0000-000000000001',
+          account.name,
+          account.email,
+          hashPassword('password123'),
+          account.phone,
+          account.role,
+          account.bloodType,
+          account.allergies,
+          account.contactName,
+          account.contactPhone,
+          account.contactRelation,
+          account.medicalNotes,
+        ]
+      );
+    }
 
     // 9. Seed demo ambulances into PostgreSQL if empty
     const ambCountRes = await client.query('SELECT COUNT(*) as count FROM ambulances');
