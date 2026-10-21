@@ -477,30 +477,39 @@ export async function initPostgresSchema(pool: pg.Pool): Promise<void> {
       );
       if (existing.rowCount) continue;
 
+      // await client.query(
+      //   `INSERT INTO users (
+      //     id, client_id, name, email, password_hash, phone, role, auth_provider, delete_flag,
+      //     blood_type, allergies, emergency_contact_name, emergency_contact_phone,
+      //     emergency_contact_relation, medical_notes
+      //   )
+      //   SELECT $1, $2, $3, $4, $5, $6, $7, 'local', false, $8, $9, $10, $11, $12, $13
+      //   WHERE NOT EXISTS (SELECT 1 FROM users WHERE LOWER(email) = LOWER($4))`,
       await client.query(
-        `INSERT INTO users (
-          id, client_id, name, email, password_hash, phone, role, auth_provider, delete_flag,
-          blood_type, allergies, emergency_contact_name, emergency_contact_phone,
-          emergency_contact_relation, medical_notes
-        )
-        SELECT $1, $2, $3, $4, $5, $6, $7, 'local', false, $8, $9, $10, $11, $12, $13
-        WHERE NOT EXISTS (SELECT 1 FROM users WHERE LOWER(email) = LOWER($4))`,
-        [
-          account.id,
-          '00000000-0000-0000-0000-000000000001',
-          account.name,
-          account.email,
-          hashPassword('password123'),
-          account.phone,
-          account.role,
-          account.bloodType,
-          account.allergies,
-          account.contactName,
-          account.contactPhone,
-          account.contactRelation,
-          account.medicalNotes,
-        ]
-      );
+     `INSERT INTO users (
+       id, client_id, name, email, password_hash, phone, role, auth_provider, delete_flag,
+       blood_type, allergies, emergency_contact_name, emergency_contact_phone,
+       emergency_contact_relation, medical_notes
+     )
+     VALUES ($1::uuid, $2::uuid, $3::varchar, $4::varchar, $5::varchar, $6::varchar, $7::varchar, 'local', false, $8::varchar, $9::text, $10::varchar, $11::varchar, $12::varchar, $13::text)
+     ON CONFLICT (email) DO NOTHING`,
+     [
+       account.id,
+       '00000000-0000-0000-0000-000000000001',
+       account.name,
+       account.email,
+       hashPassword('password123'),
+       account.phone,
+       account.role,
+       account.bloodType,
+       account.allergies,
+       account.contactName,
+       account.contactPhone,
+       account.contactRelation,
+       account.medicalNotes,
+     ]
+   );
+
     }
 
     // 9. Seed Demo Ambulances

@@ -5,6 +5,8 @@ import { createServer as createViteServer } from 'vite';
 import { app } from './server/app.js';
 import { ensureDatabaseReady } from './server/config/database.js';
 import { initializeSocketIO } from './server/sockets/socketHandler.js';
+import dotenv from 'dotenv';
+dotenv.config();
 
 async function startServer() {
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
