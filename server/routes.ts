@@ -246,14 +246,21 @@ async function findUserForLogin(email: string, pass: string): Promise<any | null
 }
 
 async function findDemoUser(role: string): Promise<any | null> {
+  const demoEmails: Record<string, string> = {
+    patient: 'patient@arogyavahini.in',
+    driver: 'driver@arogyavahini.in',
+    admin: 'admin@arogyavahini.in',
+  };
+  const email = demoEmails[role];
+  if (!email) return null;
+
   const rows = await dbQuery(
     `SELECT id, client_id, name, email, password_hash, phone, role, auth_provider, delete_flag, created_at, updated_at,
             blood_type, allergies, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, medical_notes
      FROM users 
-     WHERE role = $1 AND (delete_flag IS FALSE OR delete_flag IS NULL) 
-     ORDER BY created_at ASC 
+     WHERE email = $1 AND role = $2 AND (delete_flag IS FALSE OR delete_flag IS NULL)
      LIMIT 1`,
-    [role]
+    [email, role]
   );
 
   if (rows && rows.length > 0) {

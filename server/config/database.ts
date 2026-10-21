@@ -263,6 +263,8 @@ export async function initPostgresSchema(pool: pg.Pool): Promise<void> {
       CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
     `);
 
+    await client.query('ALTER TABLE users DROP CONSTRAINT IF EXISTS users_auth_provider_check;');
+
     // Ensure medical profile columns exist in users table (non-destructive)
     const userColumnsToAdd: [string, string][] = [
       ['blood_type', 'VARCHAR(20)'],
@@ -420,21 +422,17 @@ export async function initPostgresSchema(pool: pg.Pool): Promise<void> {
       );
     `);
 
-    // 8. Seed demo users into PostgreSQL if empty
-    const userCountRes = await client.query('SELECT COUNT(*) as count FROM users WHERE delete_flag IS FALSE OR delete_flag IS NULL');
-    if (parseInt(userCountRes.rows[0].count, 10) === 0) {
-      console.log('🌱 [Database] Seeding initial demo accounts in Neon PostgreSQL...');
-      const demoPatientPass = hashPassword('password123');
-      const demoDriverPass = hashPassword('password123');
-      const demoAdminPass = hashPassword('password123');
-      await client.query(`
-        INSERT INTO users (id, client_id, name, email, password_hash, phone, role, auth_provider, delete_flag, blood_type, allergies, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, medical_notes) VALUES
-        ('11111111-1111-4111-a111-111111111111', '00000000-0000-0000-0000-000000000001', 'Priya Rao', 'patient@arogyavahini.in', $1, '+91 98765 43210', 'patient', 'local', false, 'B+', 'Penicillin, NSAIDs (Aspirin)', 'Rajesh Rao', '+91 98451 98765', 'Spouse', 'Mild seasonal asthma; carries inhaler'),
-        ('22222222-2222-4222-a222-222222222222', '00000000-0000-0000-0000-000000000001', 'Mohammed Irfan', 'driver@arogyavahini.in', $2, '+91 97410 54321', 'driver', 'local', false, 'O+', 'None', 'HQ Dispatch', '+91 80 2200 1122', 'Dispatch Supervisor', ''),
-        ('33333333-3333-4333-a333-333333333333', '00000000-0000-0000-0000-000000000001', 'Dr. Arvind Deshmukh', 'admin@arogyavahini.in', $3, '+91 98111 22334', 'admin', 'local', false, 'A+', 'None', 'HQ Security', '+91 80 2200 1122', 'Command Center', '')
-        ON CONFLICT (email) DO NOTHING;
-      `, [demoPatientPass, demoDriverPass, demoAdminPass]);
-    }
+    // Seed demo accounts individually so existing registered users do not suppress them.
+    const demoPatientPass = hashPassword('password123');
+    const demoDriverPass = hashPassword('password123');
+    const demoAdminPass = hashPassword('password123');
+    await client.query(`
+      INSERT INTO users (id, client_id, name, email, password_hash, phone, role, auth_provider, delete_flag, blood_type, allergies, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, medical_notes) VALUES
+      ('11111111-1111-4111-a111-111111111111', '00000000-0000-0000-0000-000000000001', 'Priya Rao', 'patient@arogyavahini.in', $1, '+91 98765 43210', 'patient', 'local', false, 'B+', 'Penicillin, NSAIDs (Aspirin)', 'Rajesh Rao', '+91 98451 98765', 'Spouse', 'Mild seasonal asthma; carries inhaler'),
+      ('22222222-2222-4222-a222-222222222222', '00000000-0000-0000-0000-000000000001', 'Mohammed Irfan', 'driver@arogyavahini.in', $2, '+91 97410 54321', 'driver', 'local', false, 'O+', 'None', 'HQ Dispatch', '+91 80 2200 1122', 'Dispatch Supervisor', ''),
+      ('33333333-3333-4333-a333-333333333333', '00000000-0000-0000-0000-000000000001', 'Dr. Arvind Deshmukh', 'admin@arogyavahini.in', $3, '+91 98111 22334', 'admin', 'local', false, 'A+', 'None', 'HQ Security', '+91 80 2200 1122', 'Command Center', '')
+      ON CONFLICT (email) DO NOTHING;
+    `, [demoPatientPass, demoDriverPass, demoAdminPass]);
 
     // 9. Seed demo ambulances into PostgreSQL if empty
     const ambCountRes = await client.query('SELECT COUNT(*) as count FROM ambulances');
