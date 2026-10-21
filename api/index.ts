@@ -23,16 +23,17 @@ function ensureDatabase() {
   return dbReadyPromise;
 }
 
-// Pre-initialize database on serverless cold start module load
-ensureDatabase().catch(() => {});
-
 // Vercel Serverless Handler
 export default async function handler(req: any, res: any) {
   try {
     await ensureDatabase();
   } catch (err) {
     console.error('[Vercel Serverless] Fatal DB init failure:', err);
+    return res.status(503).json({
+      error: 'Database unavailable',
+      status: 503,
+      timestamp: new Date().toISOString(),
+    });
   }
   return app(req, res);
 }
-
